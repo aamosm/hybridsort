@@ -110,7 +110,7 @@ public class HybridSort {
         logger.info("Starting Hybrid Sort");
         System.out.println();
 
-        String filePath = "C:\\Users\\Dell\\Desktop\\listofnumbers.txt";
+        String filePath = "listofnumbers.txt";
         long[] arrayToSort = readArrayFromFile(filePath);
         long[] bubbleInsertionArray = Arrays.copyOf(arrayToSort, arrayToSort.length);
 
