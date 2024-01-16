@@ -1,7 +1,7 @@
 # hybridsort
 A sorting algorithm that I made and used AI to translate into multiple languages
 
-It uses quicksort and bubble sort to sort the given numbers and then sort the first 1000 and give them while as well sorting the rest of the digits to provide a seamless real-time output of numbers.
+It uses algorithms to sort the numbers real-time and provide a steady stream of output while sorting the rest of the digits to provide a seamless real-time output of numbers. The first 1000 sorted digits are given immediately while the rest are done in a more memory efficient fashion at the same time
 
 as of right now, it is in -
 Java, Python, C++
