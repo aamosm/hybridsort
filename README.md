@@ -8,5 +8,5 @@ Java, Python, C++
 
 I'll do my best to learn the respective languages and convert the algorithm accurately and validate its usage.
 
-the initial hybridsort is not that practical but hybridsortv2 can be used in actual real-time cases
+the initial hybridsort is not that practical but hybridsortv2 can be used in actual real-time cases you may find it in the v2 branch
 
