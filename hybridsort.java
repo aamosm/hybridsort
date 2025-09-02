@@ -1,80 +1,188 @@
-import java.io.File;
-import java.io.IOException;
+
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Scanner;
+import java.util.List;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.logging.FileHandler;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
 
-public class HybridSort {
+/**
+ * Sorts an array by breaking it into chunks, sorting them in parallel,
+ * and then merging the sorted chunks.
+ */
+public class ParallelHybridSort {
 
-    private static final int SEGMENT_SIZE = 1000;
-    private static final int THREAD_POOL_SIZE = 2;
+    // The size of array segments to be sorted by individual threads.
+    private static final int CHUNK_SIZE = 4096;
 
-    private static final Logger logger = Logger.getLogger(HybridSort.class.getName());
+    // Below this size, Quicksort is inefficient. We switch to Insertion Sort instead.
+    private static final int QUICKSORT_THRESHOLD = 47;
 
-    static {
+    /**
+     * The main method to sort the array.
+     */
+    public static void sort(long[] array) {
+        if (array == null || array.length <= 1) {
+            return;
+        }
+
+        // A single helper array is used for all merge operations to reduce memory allocation.
+        long[] helper = new long[array.length];
+
+        // 1. Break the work into chunks and sort them in parallel.
+        int coreCount = Runtime.getRuntime().availableProcessors();
+        ExecutorService executor = Executors.newFixedThreadPool(coreCount);
+        List<Future<?>> tasks = new ArrayList<>();
+
+        for (int i = 0; i < array.length; i += CHUNK_SIZE) {
+            final int start = i;
+            // The last chunk might be smaller; this handles that case.
+            final int end = Math.min(start + CHUNK_SIZE, array.length);
+            final int chunkIndex = i / CHUNK_SIZE;
+
+            // Submit each chunk to the thread pool for sorting.
+            tasks.add(executor.submit(() -> sortChunk(array, start, end, chunkIndex)));
+        }
+
+        // Wait for all parallel sorting tasks to complete.
         try {
-            FileHandler fileHandler = new FileHandler("hybrid_sort.log");
-            fileHandler.setFormatter(new SimpleFormatter());
-            logger.addHandler(fileHandler);
-            logger.setLevel(Level.ALL);
-        } catch (IOException e) {
+            for (Future<?> task : tasks) {
+                task.get();
+            }
+        } catch (Exception e) {
+            Thread.currentThread().interrupt();
             e.printStackTrace();
+        } finally {
+            executor.shutdown();
         }
+
+        // 2. Merge the sorted chunks back together.
+        mergeChunks(array, helper);
     }
 
-    public static void selectionSort(long[] arr, long[] bubbleInsertionArray) {
-        long startTime = System.nanoTime();
-        for (int i = 0; i < arr.length; i++) {
-            int minIndex = i;
-            for (int j = i + 1; j < arr.length; j++) {
-                if (arr[j] < arr[minIndex]) {
-                    minIndex = j;
-                }
-            }
-            swap(arr, i, minIndex);
-
-            if (i == SEGMENT_SIZE - 1) {
+    /**
+     * Chooses a sorting algorithm for a given chunk.
+     */
+    private static void sortChunk(long[] array, int start, int end, int chunkIndex) {
+        // Cycle through different sorters for a hybrid approach.
+        switch (chunkIndex % 3) {
+            case 0:
+                insertionSort(array, start, end);
                 break;
-            }
+            case 1:
+                maxSelectionSort(array, start, end);
+                break;
+            case 2:
+                quickSort(array, start, end - 1);
+                break;
         }
-        System.arraycopy(arr, 0, bubbleInsertionArray, 0, arr.length);
-        long endTime = System.nanoTime();
-        logger.info("Selection Sort Execution Time: " + (endTime - startTime) + " nanoseconds");
     }
 
-    public static void bubbleInsertionSort(long[] arr, int start, int end) {
-        long startTime = System.nanoTime();
-        for (int i = start; i < end; i++) {
-            for (int j = start; j < end - 1; j++) {
-                if (arr[j] > arr[j + 1]) {
-                    swap(arr, j, j + 1);
-                }
-            }
-        }
-        insertionSort(arr, start, end);
-        long endTime = System.nanoTime();
-        logger.info("Bubble-Insertion Sort Execution Time: " + (endTime - startTime) + " nanoseconds");
-    }
+    // --- Sorting Algorithms ---
 
-    public static void insertionSort(long[] arr, int start, int end) {
-        long startTime = System.nanoTime();
+    private static void insertionSort(long[] arr, int start, int end) {
         for (int i = start + 1; i < end; i++) {
-            long key = arr[i];
+            long current = arr[i];
             int j = i - 1;
-            while (j >= start && arr[j] > key) {
+            while (j >= start && arr[j] > current) {
                 arr[j + 1] = arr[j];
                 j--;
             }
-            arr[j + 1] = key;
+            arr[j + 1] = current;
         }
-        long endTime = System.nanoTime();
-        logger.info("Insertion Sort Execution Time: " + (endTime - startTime) + " nanoseconds");
+    }
+
+    private static void maxSelectionSort(long[] arr, int start, int end) {
+        for (int i = end - 1; i > start; i--) {
+            int maxIndex = i;
+            for (int j = start; j < i; j++) {
+                if (arr[j] > arr[maxIndex]) {
+                    maxIndex = j;
+                }
+            }
+            swap(arr, maxIndex, i);
+        }
+    }
+
+    private static void quickSort(long[] arr, int low, int high) {
+        if (high - low < QUICKSORT_THRESHOLD) {
+            insertionSort(arr, low, high + 1);
+            return;
+        }
+
+        if (low < high) {
+            int pivotIndex = partition(arr, low, high);
+            quickSort(arr, low, pivotIndex - 1);
+            quickSort(arr, pivotIndex + 1, high);
+        }
+    }
+
+    /**
+     * Part of Quicksort. Arranges numbers around a pivot.
+     * Uses a median-of-three strategy to pick a good pivot and avoid worst-case performance.
+     */
+    private static int partition(long[] arr, int low, int high) {
+        int mid = low + (high - low) / 2;
+        // Order low, mid, and high elements.
+        if (arr[low] > arr[mid]) swap(arr, low, mid);
+        if (arr[low] > arr[high]) swap(arr, low, high);
+        if (arr[mid] > arr[high]) swap(arr, mid, high);
+
+        // Place the median (now at mid) at the second-to-last position to act as the pivot.
+        swap(arr, mid, high - 1);
+        long pivot = arr[high - 1];
+
+        int i = low, j = high - 1;
+        while (true) {
+            while (arr[++i] < pivot);
+            while (arr[--j] > pivot);
+            if (i >= j) break;
+            swap(arr, i, j);
+        }
+        swap(arr, i, high - 1);
+        return i;
+    }
+
+    // --- Merging Logic ---
+
+    /**
+     * Merges the sorted chunks together, progressively combining them into larger sorted segments.
+     */
+    private static void mergeChunks(long[] array, long[] helper) {
+        for (int size = CHUNK_SIZE; size < array.length; size = 2 * size) {
+            for (int left = 0; left < array.length; left += 2 * size) {
+                int mid = Math.min(left + size, array.length);
+                int right = Math.min(left + 2 * size, array.length);
+                if (mid < right) {
+                    merge(array, helper, left, mid, right);
+                }
+            }
+        }
+    }
+
+    /**
+     * Merges two adjacent sorted segments: [left...mid-1] and [mid...right-1].
+     */
+    private static void merge(long[] array, long[] helper, int left, int mid, int right) {
+        // Copy the relevant section into the helper array to work from.
+        System.arraycopy(array, left, helper, left, right - left);
+
+        int leftPtr = left;
+        int rightPtr = mid;
+        int writePtr = left;
+
+        // Compare elements from both segments and write the smaller one back to the main array.
+        while (leftPtr < mid && rightPtr < right) {
+            if (helper[leftPtr] <= helper[rightPtr]) {
+                array[writePtr++] = helper[leftPtr++];
+            } else {
+                array[writePtr++] = helper[rightPtr++];
+            }
+        }
+
+        // If any elements are left in the first segment, copy them over.
+        System.arraycopy(helper, leftPtr, array, writePtr, mid - leftPtr);
     }
 
     private static void swap(long[] arr, int i, int j) {
@@ -83,88 +191,28 @@ public class HybridSort {
         arr[j] = temp;
     }
 
-    public static void displaySortedArray(long[] arr, int start, int end) {
-        logger.info("Sorted Array: " + Arrays.toString(Arrays.copyOfRange(arr, start, end)));
-    }
-
-    public static long[] readArrayFromFile(String filePath) {
-        try {
-            Scanner scanner = new Scanner(new File(filePath));
-            String content = scanner.useDelimiter("\\Z").next();
-            scanner.close();
-
-            String[] numberStrings = content.replaceAll("[^0-9,]", "").split(",");
-            long[] numbers = new long[numberStrings.length];
-            for (int i = 0; i < numberStrings.length; i++) {
-                numbers[i] = Long.parseLong(numberStrings[i]);
-            }
-
-            return numbers;
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
-        }
-    }
-
+    // --- Demo ---
     public static void main(String[] args) {
-        logger.info("Starting Hybrid Sort");
-        System.out.println();
+        final int ARRAY_SIZE = 2_000_000;
+        long[] arrayToSort = new Random().longs(ARRAY_SIZE).toArray();
+        long[] controlArray = Arrays.copyOf(arrayToSort, arrayToSort.length);
+        
+        System.out.println("Sorting " + ARRAY_SIZE + " numbers...");
 
-        String filePath = "listofnumbers.txt";
-        long[] arrayToSort = readArrayFromFile(filePath);
-        long[] bubbleInsertionArray = Arrays.copyOf(arrayToSort, arrayToSort.length);
-
-        if (arrayToSort != null) {
-            ExecutorService executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
-
-            Future<?> selectionSortFuture = executorService.submit(() -> {
-                            logger.info("Executing Selection Sort");
-                            selectionSort(arrayToSort, bubbleInsertionArray);
-                            displaySortedArray(arrayToSort, 0, SEGMENT_SIZE);
-                    });
-
-            Future<?> bubbleInsertionSortFuture = executorService.submit(() -> {
-                            logger.info("Executing Bubble-Insertion Sort");
-                            int middle = arrayToSort.length / 2;
-                            bubbleInsertionSort(bubbleInsertionArray, 0, middle);
-                            displaySortedArray(bubbleInsertionArray, 0, arrayToSort.length);
-                    });
-
-            try {
-
-                selectionSortFuture.get();
-                bubbleInsertionSortFuture.get();
-
-                compareSortingResults(arrayToSort, bubbleInsertionArray);
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                executorService.shutdown();
-            }
+        long startTime = System.nanoTime();
+        ParallelHybridSort.sort(arrayToSort);
+        long ourDuration = (System.nanoTime() - startTime) / 1_000_000;
+        System.out.println("-> Custom sort took: " + ourDuration + " ms");
+        
+        startTime = System.nanoTime();
+        Arrays.parallelSort(controlArray);
+        long controlDuration = (System.nanoTime() - startTime) / 1_000_000;
+        System.out.println("-> Java's built-in sort took: " + controlDuration + " ms");
+        
+        if (Arrays.equals(arrayToSort, controlArray)) {
+            System.out.println("\nVerification: Success");
         } else {
-            logger.severe("Error reading the input file.");
+            System.out.println("\nVerification: FAILED");
         }
-
-        logger.info("Hybrid Sort Completed");
-        System.out.println();
     }
-
-    private static void compareSortingResults(long[] arr1, long[] arr2) {
-
-        Arrays.sort(arr1);
-
-        // Log the sorted arrays
-        logger.info("Sorted Array (Your Custom Algorithm): " + Arrays.toString(arr2));
-        logger.info("Sorted Array (Arrays.sort()): " + Arrays.toString(arr1));
-
-        // Check if both arrays are equal
-        if (Arrays.equals(arr1, arr2)) {
-            logger.info("Sorting results match Arrays.sort()");
-        } else {
-            logger.warning("Sorting results do not match Arrays.sort()");
-        }
-
-        // WARNING! : java's in built sorting function may not be a very reliable test
-    }
-
 }
